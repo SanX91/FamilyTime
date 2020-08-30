@@ -1,21 +1,24 @@
-﻿using System.Collections;
-using System.Collections.Generic;
-using UnityEngine;
+﻿using System;
+using Game.General;
+using UnityEngine.UI;
 
 namespace Game.Vocabattle.Lobby
 {
-    public class CreateGamePanel : MonoBehaviour
+    public class CreateGamePanel : UIPanel
     {
-        // Start is called before the first frame update
-        void Start()
-        {
+        public EventHandler<string> OnCreateGameClickedEvent;
+        public EventHandler<EventArgs> OnCancelClickedEvent;
+        public InputField gameNameInputField;
 
+        public void OnCreateGameClicked()
+        {
+            //TODO - Add checks and error messages for wrong input
+            OnCreateGameClickedEvent?.Invoke(this, gameNameInputField.text);
         }
 
-        // Update is called once per frame
-        void Update()
+        public void OnCancelClicked()
         {
-
+            OnCancelClickedEvent?.Invoke(this, new EventArgs());
         }
     }
 }

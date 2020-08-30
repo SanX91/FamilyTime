@@ -9,11 +9,12 @@ namespace Game.Vocabattle.Lobby
     {
         public EventHandler<string> OnLoginClickedEvent;
 
-        public InputField teamNameInput;
+        public InputField teamNameInputField;
 
         public void OnLoginClicked()
         {
-            OnLoginClickedEvent?.Invoke(this, teamNameInput.text);
+            //TODO - Add checks and error messages for wrong input
+            OnLoginClickedEvent?.Invoke(this, teamNameInputField.text);
         }
     }
 }

@@ -1,41 +1,18 @@
 ﻿using System.Collections.Generic;
+using System.Linq;
 using ExitGames.Client.Photon;
 using Photon.Pun;
 using Photon.Pun.Demo.Asteroids;
+using Photon.Pun.UtilityScripts;
 using Photon.Realtime;
 using UnityEngine;
-using UnityEngine.UI;
 
 namespace Game.Vocabattle.Lobby
 {
     public class LobbySetup : MonoBehaviourPunCallbacks
     {
         public LobbyUI lobbyUI;
-
-        [Header("Create Room Panel")]
-        public GameObject CreateRoomPanel;
-
-        public InputField RoomNameInputField;
-        public InputField MaxPlayersInputField;
-
-        [Header("Join Random Room Panel")]
-        public GameObject JoinRandomRoomPanel;
-
-        [Header("Room List Panel")]
-        public GameObject RoomListPanel;
-
-        public GameObject RoomListContent;
-        public GameObject RoomListEntryPrefab;
-
-        [Header("Inside Room Panel")]
-        public GameObject InsideRoomPanel;
-
-        public Button StartGameButton;
-        public GameObject PlayerListEntryPrefab;
-
-        private Dictionary<string, RoomInfo> cachedRoomList;
-        private Dictionary<string, GameObject> roomListEntries;
-        private Dictionary<int, GameObject> playerListEntries;
+        public string gameSceneName;
 
         #region UNITY
 
@@ -43,13 +20,18 @@ namespace Game.Vocabattle.Lobby
         {
             PhotonNetwork.AutomaticallySyncScene = true;
 
-            cachedRoomList = new Dictionary<string, RoomInfo>();
-            roomListEntries = new Dictionary<string, GameObject>();
+            lobbyUI.GetPanel<LoginPanel>().OnLoginClickedEvent += OnLoginAttempt;
 
-            lobbyUI.GetPanel<LoginPanel>().OnLoginClickedEvent += OnLoginClicked;
+            lobbyUI.GetPanel<SelectionPanel>().OnCreateGameClickedEvent += OnCreateGamePanelOpen;
+            lobbyUI.GetPanel<SelectionPanel>().OnJoinGameClickedEvent += OnJoinGamePanelOpen;
 
-            lobbyUI.GetPanel<SelectionPanel>().OnCreateGameClickedEvent += OnCreateGameClicked;
-            lobbyUI.GetPanel<SelectionPanel>().OnJoinGameClickedEvent += OnJoinGameClicked;
+            lobbyUI.GetPanel<CreateGamePanel>().OnCreateGameClickedEvent += OnCreateGameAttempt;
+            lobbyUI.GetPanel<CreateGamePanel>().OnCancelClickedEvent += OnCancelCreateGame;
+
+            lobbyUI.GetPanel<AvailableGamesPanel>().OnBackClickedEvent += OnExitAvailableGames;
+
+            lobbyUI.GetPanel<JoinedGamePanel>().OnStartGameClickedEvent += OnStartGameButtonClicked;
+            lobbyUI.GetPanel<JoinedGamePanel>().OnLeaveGameClickedEvent += OnLeaveGameButtonClicked;
         }
 
         private void Start()
@@ -68,17 +50,12 @@ namespace Game.Vocabattle.Lobby
 
         public override void OnRoomListUpdate(List<RoomInfo> roomList)
         {
-            ClearRoomListView();
-
-            UpdateCachedRoomList(roomList);
-            UpdateRoomListView();
+            lobbyUI.GetPanel<AvailableGamesPanel>().ShowAvailableGames(roomList, OnJoinGameClicked);
         }
 
         public override void OnLeftLobby()
         {
-            cachedRoomList.Clear();
 
-            ClearRoomListView();
         }
 
         public override void OnCreateRoomFailed(short returnCode, string message)
@@ -86,46 +63,16 @@ namespace Game.Vocabattle.Lobby
             lobbyUI.ActivatePanel<SelectionPanel>();
         }
 
-        public override void OnJoinRoomFailed(short returnCode, string message)
-        {
-            lobbyUI.ActivatePanel<SelectionPanel>();
-        }
-
-        public override void OnJoinRandomFailed(short returnCode, string message)
-        {
-            string roomName = "Room " + Random.Range(1000, 10000);
-
-            RoomOptions options = new RoomOptions { MaxPlayers = 8 };
-
-            PhotonNetwork.CreateRoom(roomName, options, null);
-        }
-
         public override void OnJoinedRoom()
         {
-            SetActivePanel(InsideRoomPanel.name);
+            lobbyUI.ActivatePanel<JoinedGamePanel>();
 
-            if (playerListEntries == null)
-            {
-                playerListEntries = new Dictionary<int, GameObject>();
-            }
+            Hashtable initialProps = new Hashtable() { { VocabattleConstants.IsPlayerReady, false } };
+            PhotonNetwork.LocalPlayer.SetCustomProperties(initialProps);
+            PhotonNetwork.LocalPlayer.SetScore(0);
 
-            foreach (Player p in PhotonNetwork.PlayerList)
-            {
-                GameObject entry = Instantiate(PlayerListEntryPrefab);
-                entry.transform.SetParent(InsideRoomPanel.transform);
-                entry.transform.localScale = Vector3.one;
-                entry.GetComponent<PlayerListEntry>().Initialize(p.ActorNumber, p.NickName);
-
-                object isPlayerReady;
-                if (p.CustomProperties.TryGetValue(AsteroidsGame.PLAYER_READY, out isPlayerReady))
-                {
-                    entry.GetComponent<PlayerListEntry>().SetPlayerReady((bool)isPlayerReady);
-                }
-
-                playerListEntries.Add(p.ActorNumber, entry);
-            }
-
-            StartGameButton.gameObject.SetActive(CheckPlayersReady());
+            lobbyUI.GetPanel<JoinedGamePanel>().ShowJoinedPlayers(PhotonNetwork.PlayerList.ToList(), OnPlayerReady);
+            ToggleStartButton();
 
             Hashtable props = new Hashtable
             {
@@ -137,69 +84,36 @@ namespace Game.Vocabattle.Lobby
         public override void OnLeftRoom()
         {
             lobbyUI.ActivatePanel<SelectionPanel>();
-
-            foreach (GameObject entry in playerListEntries.Values)
-            {
-                Destroy(entry.gameObject);
-            }
-
-            playerListEntries.Clear();
-            playerListEntries = null;
         }
 
         public override void OnPlayerEnteredRoom(Player newPlayer)
         {
-            GameObject entry = Instantiate(PlayerListEntryPrefab);
-            entry.transform.SetParent(InsideRoomPanel.transform);
-            entry.transform.localScale = Vector3.one;
-            entry.GetComponent<PlayerListEntry>().Initialize(newPlayer.ActorNumber, newPlayer.NickName);
-
-            playerListEntries.Add(newPlayer.ActorNumber, entry);
-
-            StartGameButton.gameObject.SetActive(CheckPlayersReady());
+            lobbyUI.GetPanel<JoinedGamePanel>().AddPlayer(newPlayer, OnPlayerReady);
+            ToggleStartButton();
         }
 
         public override void OnPlayerLeftRoom(Player otherPlayer)
         {
-            Destroy(playerListEntries[otherPlayer.ActorNumber].gameObject);
-            playerListEntries.Remove(otherPlayer.ActorNumber);
-
-            StartGameButton.gameObject.SetActive(CheckPlayersReady());
+            lobbyUI.GetPanel<JoinedGamePanel>().RemovePlayer(otherPlayer);
+            ToggleStartButton();
         }
 
         public override void OnMasterClientSwitched(Player newMasterClient)
         {
-            if (PhotonNetwork.LocalPlayer.ActorNumber == newMasterClient.ActorNumber)
-            {
-                StartGameButton.gameObject.SetActive(CheckPlayersReady());
-            }
+            ToggleStartButton();
         }
 
         public override void OnPlayerPropertiesUpdate(Player targetPlayer, Hashtable changedProps)
         {
-            if (playerListEntries == null)
-            {
-                playerListEntries = new Dictionary<int, GameObject>();
-            }
-
-            GameObject entry;
-            if (playerListEntries.TryGetValue(targetPlayer.ActorNumber, out entry))
-            {
-                object isPlayerReady;
-                if (changedProps.TryGetValue(AsteroidsGame.PLAYER_READY, out isPlayerReady))
-                {
-                    entry.GetComponent<PlayerListEntry>().SetPlayerReady((bool)isPlayerReady);
-                }
-            }
-
-            StartGameButton.gameObject.SetActive(CheckPlayersReady());
+            lobbyUI.GetPanel<JoinedGamePanel>().UpdatePlayer(targetPlayer, changedProps, OnPlayerReady);
+            ToggleStartButton();
         }
 
         #endregion
 
         #region UI CALLBACKS
 
-        private void OnLoginClicked(object sender, string teamName)
+        private void OnLoginAttempt(object sender, string teamName)
         {
             if (string.IsNullOrEmpty(teamName))
             {
@@ -211,17 +125,49 @@ namespace Game.Vocabattle.Lobby
             PhotonNetwork.ConnectUsingSettings();
         }
 
-        private void OnCreateGameClicked(object sender, System.EventArgs e)
+        private void OnCreateGamePanelOpen(object sender, System.EventArgs e)
         {
-            throw new System.NotImplementedException();
+            lobbyUI.ActivatePanel<CreateGamePanel>();
         }
 
-        private void OnJoinGameClicked(object sender, System.EventArgs e)
+        private void OnJoinGamePanelOpen(object sender, System.EventArgs e)
         {
-            throw new System.NotImplementedException();
+            if (!PhotonNetwork.InLobby)
+            {
+                PhotonNetwork.JoinLobby();
+            }
+
+            lobbyUI.ActivatePanel<AvailableGamesPanel>();
         }
 
-        public void OnBackButtonClicked()
+        private void OnCreateGameAttempt(object sender, string gameName)
+        {
+            RoomOptions options = new RoomOptions { PlayerTtl = 10000 };
+            PhotonNetwork.CreateRoom(gameName, options, null);
+        }
+
+        private void OnCancelCreateGame(object sender, System.EventArgs e)
+        {
+            lobbyUI.ActivatePanel<SelectionPanel>();
+        }
+
+        private void OnJoinGameClicked(string gameName)
+        {
+            if (PhotonNetwork.InLobby)
+            {
+                PhotonNetwork.LeaveLobby();
+            }
+
+            PhotonNetwork.JoinRoom(gameName);
+        }
+
+        private void OnPlayerReady(bool isReady)
+        {
+            Hashtable props = new Hashtable() { { VocabattleConstants.IsPlayerReady, isReady } };
+            PhotonNetwork.LocalPlayer.SetCustomProperties(props);
+        }
+
+        private void OnExitAvailableGames(object sender, System.EventArgs e)
         {
             if (PhotonNetwork.InLobby)
             {
@@ -231,53 +177,22 @@ namespace Game.Vocabattle.Lobby
             lobbyUI.ActivatePanel<SelectionPanel>();
         }
 
-        public void OnCreateRoomButtonClicked()
-        {
-            string roomName = RoomNameInputField.text;
-            roomName = (roomName.Equals(string.Empty)) ? "Room " + Random.Range(1000, 10000) : roomName;
-
-            byte maxPlayers;
-            byte.TryParse(MaxPlayersInputField.text, out maxPlayers);
-            maxPlayers = (byte)Mathf.Clamp(maxPlayers, 2, 8);
-
-            RoomOptions options = new RoomOptions { MaxPlayers = maxPlayers, PlayerTtl = 10000 };
-
-            PhotonNetwork.CreateRoom(roomName, options, null);
-        }
-
-        public void OnJoinRandomRoomButtonClicked()
-        {
-            SetActivePanel(JoinRandomRoomPanel.name);
-
-            PhotonNetwork.JoinRandomRoom();
-        }
-
-        public void OnLeaveGameButtonClicked()
+        public void OnLeaveGameButtonClicked(object sender, System.EventArgs e)
         {
             PhotonNetwork.LeaveRoom();
         }
 
-        public void OnRoomListButtonClicked()
-        {
-            if (!PhotonNetwork.InLobby)
-            {
-                PhotonNetwork.JoinLobby();
-            }
-
-            SetActivePanel(RoomListPanel.name);
-        }
-
-        public void OnStartGameButtonClicked()
+        public void OnStartGameButtonClicked(object sender, System.EventArgs e)
         {
             PhotonNetwork.CurrentRoom.IsOpen = false;
             PhotonNetwork.CurrentRoom.IsVisible = false;
 
-            PhotonNetwork.LoadLevel("DemoAsteroids-GameScene");
+            PhotonNetwork.LoadLevel(gameSceneName);
         }
 
         #endregion
 
-        private bool CheckPlayersReady()
+        private bool AreAllPlayersReady()
         {
             if (!PhotonNetwork.IsMasterClient)
             {
@@ -287,7 +202,7 @@ namespace Game.Vocabattle.Lobby
             foreach (Player p in PhotonNetwork.PlayerList)
             {
                 object isPlayerReady;
-                if (p.CustomProperties.TryGetValue(AsteroidsGame.PLAYER_READY, out isPlayerReady))
+                if (p.CustomProperties.TryGetValue(VocabattleConstants.IsPlayerReady, out isPlayerReady))
                 {
                     if (!(bool)isPlayerReady)
                     {
@@ -303,69 +218,17 @@ namespace Game.Vocabattle.Lobby
             return true;
         }
 
-        private void ClearRoomListView()
+        private void ToggleStartButton()
         {
-            foreach (GameObject entry in roomListEntries.Values)
+            lobbyUI.GetPanel<JoinedGamePanel>().ToggleStartButton(AreAllPlayersReady());
+        }
+
+        private void OnApplicationQuit()
+        {
+            MonoBehaviour[] scripts = Object.FindObjectsOfType<MonoBehaviour>();
+            foreach (MonoBehaviour script in scripts)
             {
-                Destroy(entry.gameObject);
-            }
-
-            roomListEntries.Clear();
-        }
-
-        public void LocalPlayerPropertiesUpdated()
-        {
-            StartGameButton.gameObject.SetActive(CheckPlayersReady());
-        }
-
-        private void SetActivePanel(string activePanel)
-        {
-            // LoginPanel.SetActive(activePanel.Equals(LoginPanel.name));
-            // SelectionPanel.SetActive(activePanel.Equals(SelectionPanel.name));
-            CreateRoomPanel.SetActive(activePanel.Equals(CreateRoomPanel.name));
-            JoinRandomRoomPanel.SetActive(activePanel.Equals(JoinRandomRoomPanel.name));
-            RoomListPanel.SetActive(activePanel.Equals(RoomListPanel.name));    // UI should call OnRoomListButtonClicked() to activate this
-            InsideRoomPanel.SetActive(activePanel.Equals(InsideRoomPanel.name));
-        }
-
-        private void UpdateCachedRoomList(List<RoomInfo> roomList)
-        {
-            foreach (RoomInfo info in roomList)
-            {
-                // Remove room from cached room list if it got closed, became invisible or was marked as removed
-                if (!info.IsOpen || !info.IsVisible || info.RemovedFromList)
-                {
-                    if (cachedRoomList.ContainsKey(info.Name))
-                    {
-                        cachedRoomList.Remove(info.Name);
-                    }
-
-                    continue;
-                }
-
-                // Update cached room info
-                if (cachedRoomList.ContainsKey(info.Name))
-                {
-                    cachedRoomList[info.Name] = info;
-                }
-                // Add new room info to cache
-                else
-                {
-                    cachedRoomList.Add(info.Name, info);
-                }
-            }
-        }
-
-        private void UpdateRoomListView()
-        {
-            foreach (RoomInfo info in cachedRoomList.Values)
-            {
-                GameObject entry = Instantiate(RoomListEntryPrefab);
-                entry.transform.SetParent(RoomListContent.transform);
-                entry.transform.localScale = Vector3.one;
-                entry.GetComponent<RoomListEntry>().Initialize(info.Name, (byte)info.PlayerCount, info.MaxPlayers);
-
-                roomListEntries.Add(info.Name, entry);
+                script.enabled = false;
             }
         }
     }
