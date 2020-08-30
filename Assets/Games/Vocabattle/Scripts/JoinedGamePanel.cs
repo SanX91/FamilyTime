@@ -15,11 +15,11 @@ namespace Game.Vocabattle.Lobby
         public GameObject startButton;
         public JoinedPlayerUI joinedPlayerPrefab;
         public RectTransform joinedPlayersContainer;
-        private Dictionary<string, JoinedPlayerUI> joinedPlayers;
+        private Dictionary<int, JoinedPlayerUI> joinedPlayers;
 
         private void Awake()
         {
-            joinedPlayers = new Dictionary<string, JoinedPlayerUI>();
+            joinedPlayers = new Dictionary<int, JoinedPlayerUI>();
         }
 
         private void OnDisable()
@@ -31,7 +31,7 @@ namespace Game.Vocabattle.Lobby
         {
             foreach (var player in joinedPlayers)
             {
-                if (this.joinedPlayers.ContainsKey(player.UserId))
+                if (this.joinedPlayers.ContainsKey(player.ActorNumber))
                 {
                     continue;
                 }
@@ -42,7 +42,7 @@ namespace Game.Vocabattle.Lobby
 
         public void AddPlayer(Player player, Action<bool> onReady)
         {
-            if (joinedPlayers.ContainsKey(player.UserId))
+            if (joinedPlayers.ContainsKey(player.ActorNumber))
             {
                 return;
             }
@@ -52,19 +52,19 @@ namespace Game.Vocabattle.Lobby
 
         public void RemovePlayer(Player player)
         {
-            if (!joinedPlayers.ContainsKey(player.UserId))
+            if (!joinedPlayers.ContainsKey(player.ActorNumber))
             {
                 return;
             }
 
             //TODO - Use pooling later
-            Destroy(joinedPlayers[player.UserId].gameObject);
-            joinedPlayers.Remove(player.UserId);
+            Destroy(joinedPlayers[player.ActorNumber].gameObject);
+            joinedPlayers.Remove(player.ActorNumber);
         }
 
         public void UpdatePlayer(Player targetPlayer, Hashtable changedProps, Action<bool> onReady)
         {
-            if (!joinedPlayers.ContainsKey(targetPlayer.UserId))
+            if (!joinedPlayers.ContainsKey(targetPlayer.ActorNumber))
             {
                 CreatePlayer(targetPlayer, onReady);
                 return;
@@ -95,14 +95,14 @@ namespace Game.Vocabattle.Lobby
         {
             JoinedPlayerUI joinedPlayer = Instantiate(joinedPlayerPrefab, joinedPlayersContainer);
             joinedPlayer.Initialize(player.ActorNumber, player.NickName, onReady);
-            joinedPlayers.Add(player.UserId, joinedPlayer);
+            joinedPlayers.Add(player.ActorNumber, joinedPlayer);
 
             SetPlayerReady(player);
         }
 
         private void SetPlayerReady(Player player)
         {
-            if (!joinedPlayers.ContainsKey(player.UserId))
+            if (!joinedPlayers.ContainsKey(player.ActorNumber))
             {
                 return;
             }
@@ -110,7 +110,7 @@ namespace Game.Vocabattle.Lobby
             object isPlayerReady;
             if (player.CustomProperties.TryGetValue(VocabattleConstants.IsPlayerReady, out isPlayerReady))
             {
-                joinedPlayers[player.UserId].SetPlayerReady((bool)isPlayerReady);
+                joinedPlayers[player.ActorNumber].SetPlayerReady((bool)isPlayerReady);
             }
         }
 
@@ -121,7 +121,7 @@ namespace Game.Vocabattle.Lobby
                 Destroy(player.Value.gameObject);
             }
 
-            joinedPlayers = new Dictionary<string, JoinedPlayerUI>();
+            joinedPlayers = new Dictionary<int, JoinedPlayerUI>();
         }
     }
 }
