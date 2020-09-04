@@ -5,6 +5,11 @@ namespace Game.Vocabattle
     public static class VocabattleConstants
     {
         public const string IsPlayerReady = "isPlayerReady";
+        public const string HasPlayerLoadedLevel = "hasPlayerLoadedLevel";
+        public const string CurrentPlayerTurn = "currentPlayerTurn";
+        public const string CurrentRound = "currentRound";
+        public const string TeamNamePref = "teamNamePref";
+        public const string GameNamePref = "gameNamePref";
         
         public static Color GetColor(int number)
         {

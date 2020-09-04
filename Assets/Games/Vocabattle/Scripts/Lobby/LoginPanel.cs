@@ -8,6 +8,7 @@ namespace Game.Vocabattle.Lobby
     public class LoginPanel : UIPanel
     {
         public EventHandler<string> OnLoginClickedEvent;
+        public EventHandler<EventArgs> OnReconnectClickedEvent;
 
         public InputField teamNameInputField;
 
@@ -15,6 +16,11 @@ namespace Game.Vocabattle.Lobby
         {
             //TODO - Add checks and error messages for wrong input
             OnLoginClickedEvent?.Invoke(this, teamNameInputField.text);
+        }
+
+        public void OnReconnectClicked()
+        {
+            OnReconnectClickedEvent?.Invoke(this, new EventArgs());
         }
     }
 }

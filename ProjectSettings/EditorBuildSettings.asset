@@ -8,4 +8,7 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Games/Vocabattle/Scenes/Vocabattle_lobby.unity
     guid: 687fd0d8550845046bb774f5cd159ba4
+  - enabled: 1
+    path: Assets/Games/Vocabattle/Scenes/Vocabattle_game.unity
+    guid: f9d51fe7f265611488f21f924378b3e6
   m_configObjects: {}

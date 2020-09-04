@@ -2,7 +2,6 @@
 using System.Linq;
 using ExitGames.Client.Photon;
 using Photon.Pun;
-using Photon.Pun.Demo.Asteroids;
 using Photon.Pun.UtilityScripts;
 using Photon.Realtime;
 using UnityEngine;
@@ -21,6 +20,7 @@ namespace Game.Vocabattle.Lobby
             PhotonNetwork.AutomaticallySyncScene = true;
 
             lobbyUI.GetPanel<LoginPanel>().OnLoginClickedEvent += OnLoginAttempt;
+            lobbyUI.GetPanel<LoginPanel>().OnReconnectClickedEvent += OnReconnectAttempt;
 
             lobbyUI.GetPanel<SelectionPanel>().OnCreateGameClickedEvent += OnCreateGamePanelOpen;
             lobbyUI.GetPanel<SelectionPanel>().OnJoinGameClickedEvent += OnJoinGamePanelOpen;
@@ -43,9 +43,23 @@ namespace Game.Vocabattle.Lobby
 
         #region PUN CALLBACKS
 
+        public override void OnDisconnected(DisconnectCause cause)
+        {
+            lobbyUI.ActivatePanel<LoginPanel>();
+        }
+
         public override void OnConnectedToMaster()
         {
             lobbyUI.ActivatePanel<SelectionPanel>();
+
+            if (!PlayerPrefs.HasKey(VocabattleConstants.GameNamePref))
+            {
+                return;
+            }
+
+            string gameName = PlayerPrefs.GetString(VocabattleConstants.GameNamePref);
+            Debug.Log($"Game name: {gameName}");
+            PhotonNetwork.RejoinRoom(gameName);
         }
 
         public override void OnRoomListUpdate(List<RoomInfo> roomList)
@@ -76,9 +90,10 @@ namespace Game.Vocabattle.Lobby
 
             Hashtable props = new Hashtable
             {
-                {AsteroidsGame.PLAYER_LOADED_LEVEL, false}
+                {VocabattleConstants.HasPlayerLoadedLevel, false}
             };
             PhotonNetwork.LocalPlayer.SetCustomProperties(props);
+            Debug.Log($"User id: {PhotonNetwork.LocalPlayer.UserId}");
         }
 
         public override void OnLeftRoom()
@@ -121,6 +136,13 @@ namespace Game.Vocabattle.Lobby
                 return;
             }
 
+            PlayerPrefs.SetString(VocabattleConstants.TeamNamePref, teamName);
+            Connect(teamName);
+        }
+
+        private void Connect(string teamName)
+        {
+            PhotonNetwork.AuthValues = new AuthenticationValues(teamName);
             PhotonNetwork.LocalPlayer.NickName = teamName;
             PhotonNetwork.ConnectUsingSettings();
         }
@@ -142,7 +164,7 @@ namespace Game.Vocabattle.Lobby
 
         private void OnCreateGameAttempt(object sender, string gameName)
         {
-            RoomOptions options = new RoomOptions { PlayerTtl = 10000 };
+            RoomOptions options = new RoomOptions { PlayerTtl = int.MaxValue };
             PhotonNetwork.CreateRoom(gameName, options, null);
         }
 
@@ -158,6 +180,7 @@ namespace Game.Vocabattle.Lobby
                 PhotonNetwork.LeaveLobby();
             }
 
+            PlayerPrefs.SetString(VocabattleConstants.GameNamePref, gameName);
             PhotonNetwork.JoinRoom(gameName);
         }
 
@@ -177,17 +200,28 @@ namespace Game.Vocabattle.Lobby
             lobbyUI.ActivatePanel<SelectionPanel>();
         }
 
-        public void OnLeaveGameButtonClicked(object sender, System.EventArgs e)
+        private void OnLeaveGameButtonClicked(object sender, System.EventArgs e)
         {
             PhotonNetwork.LeaveRoom();
         }
 
-        public void OnStartGameButtonClicked(object sender, System.EventArgs e)
+        private void OnStartGameButtonClicked(object sender, System.EventArgs e)
         {
             PhotonNetwork.CurrentRoom.IsOpen = false;
             PhotonNetwork.CurrentRoom.IsVisible = false;
 
             PhotonNetwork.LoadLevel(gameSceneName);
+        }
+
+        private void OnReconnectAttempt(object sender, System.EventArgs e)
+        {
+            if (!PlayerPrefs.HasKey(VocabattleConstants.TeamNamePref))
+            {
+                return;
+            }
+
+            string teamName = PlayerPrefs.GetString(VocabattleConstants.TeamNamePref);
+            Connect(teamName);
         }
 
         #endregion
