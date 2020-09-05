@@ -1,6 +1,6 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
+using Game.General;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -19,6 +19,8 @@ namespace Game.Vocabattle.Game
             EventManager.Instance.AddListener<RoundUpdateEvent>(OnRoundUpdate);
             EventManager.Instance.AddListener<PlayerTurnEvent>(OnPlayerTurn);
             EventManager.Instance.AddListener<TurnTimeLeftEvent>(OnTurnTimeLeft);
+            EventManager.Instance.AddListener<WordsLoadedEvent>(OnWordsLoaded);
+            EventManager.Instance.AddListener<UsedWordsEvent>(OnUsedWords);
         }
 
         private void OnDisable()
@@ -26,6 +28,20 @@ namespace Game.Vocabattle.Game
             EventManager.Instance.RemoveListener<RoundUpdateEvent>(OnRoundUpdate);
             EventManager.Instance.RemoveListener<PlayerTurnEvent>(OnPlayerTurn);
             EventManager.Instance.RemoveListener<TurnTimeLeftEvent>(OnTurnTimeLeft);
+            EventManager.Instance.RemoveListener<WordsLoadedEvent>(OnWordsLoaded);
+            EventManager.Instance.RemoveListener<UsedWordsEvent>(OnUsedWords);
+        }
+
+        private void OnUsedWords(UsedWordsEvent evt)
+        {
+            List<string> usedWords = (List<string>)evt.GetData();
+            playerTurnUI.SetUsedWords(usedWords);
+        }
+
+        private void OnWordsLoaded(WordsLoadedEvent evt)
+        {
+            Dictionary<string, object> words = (Dictionary<string, object>)evt.GetData();
+            playerTurnUI.SetWords(words);
         }
 
         private void OnTurnTimeLeft(TurnTimeLeftEvent evt)
@@ -43,12 +59,12 @@ namespace Game.Vocabattle.Game
             if (playerTurnData.IsLocal)
             {
                 opponentTurnUI.Hide();
-                playerTurnUI.Show("g");
+                playerTurnUI.Show(playerTurnData.TargetLetter);
                 return;
             }
 
             playerTurnUI.Hide();
-            opponentTurnUI.Show("Waiting for opponent to submit a word with b");
+            opponentTurnUI.Show($"Waiting for opponent to submit a word with {playerTurnData.TargetLetter}");
         }
 
         private void OnRoundUpdate(RoundUpdateEvent evt)

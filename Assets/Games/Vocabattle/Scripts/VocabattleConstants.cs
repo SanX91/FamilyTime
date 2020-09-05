@@ -10,8 +10,12 @@ namespace Game.Vocabattle
         public const string CurrentTurnStartTime = "currentTurnStartTime";
         public const string CurrentPlayerTurn = "currentPlayerTurn";
         public const string CurrentRound = "currentRound";
+        public const string IsTurnOver = "isTurnOver";
         public const string TeamNamePref = "teamNamePref";
         public const string GameNamePref = "gameNamePref";
+        public const string Round = "round";
+        public const string TargetLetter = "targetLetter";
+        public const string IsGameOver = "isGameOver";
         
         public static Color GetColor(int number)
         {

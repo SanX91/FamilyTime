@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using ExitGames.Client.Photon;
 using Photon.Pun;
 using Photon.Pun.UtilityScripts;
@@ -13,26 +14,44 @@ namespace Game.Vocabattle.Game
         public float turnTime = 60;
         private Coroutine gameRoutine;
         private double currentTurnStartTime;
+        private bool isTurnOver;
         private TurnTimeLeftEvent turnTimeLeftEvent;
+        private string targetLetter;
+        private bool isGameOver;
+        private List<string> usedWords;
         private const double NetworkTimeMaxValue = 4294967.295;
 
         public override void OnEnable()
         {
             base.OnEnable();
-            PlayerNumbering.OnPlayerNumberingChanged += OnPlayerNumberingChanged;
-            PhotonNetwork.AddCallbackTarget(this);
+            EventManager.Instance.AddListener<SubmitWordEvent>(OnSubmitWord);
         }
 
         public override void OnDisable()
         {
             base.OnDisable();
-            PlayerNumbering.OnPlayerNumberingChanged -= OnPlayerNumberingChanged;
-            PhotonNetwork.RemoveCallbackTarget(this);
+            EventManager.Instance.RemoveListener<SubmitWordEvent>(OnSubmitWord);
+        }
+
+        private void OnSubmitWord(SubmitWordEvent evt)
+        {
+            string word = (string)evt.GetData();
+            string round = $"round_{GetCurrentRound()}";
+
+            if (PhotonNetwork.LocalPlayer.CustomProperties.ContainsKey(round))
+            {
+                return;
+            }
+
+            SetPlayerProperty(round, word);
+            PhotonNetwork.LocalPlayer.AddScore(word.Length);
         }
 
         private void Start()
         {
             turnTimeLeftEvent = new TurnTimeLeftEvent();
+            usedWords = new List<string>();
+            EventManager.Instance.TriggerEvent(new UsedWordsEvent(usedWords));
 
             Hashtable props = new Hashtable
             {
@@ -40,15 +59,35 @@ namespace Game.Vocabattle.Game
             };
 
             PhotonNetwork.LocalPlayer.SetCustomProperties(props);
+
+            EventManager.Instance.TriggerEvent(new CreateScoreBoardsEvent(PhotonNetwork.PlayerList));
         }
 
         private void Update()
         {
+            if (isGameOver)
+            {
+                return;
+            }
+
             if (turnTime - GetNetworkTimeElapsedSinceTurnStart() >= 0)
             {
                 turnTimeLeftEvent.SetValue(turnTime - GetNetworkTimeElapsedSinceTurnStart());
                 EventManager.Instance.TriggerEvent(turnTimeLeftEvent);
+                return;
             }
+        }
+
+        private bool IsTimeUp()
+        {
+            if (turnTime - GetNetworkTimeElapsedSinceTurnStart() >= 0)
+            {
+                return false;
+            }
+
+            isTurnOver = true;
+            SetRoomProperty(VocabattleConstants.IsTurnOver, true);
+            return true;
         }
 
         private double GetNetworkTimeElapsedSinceTurnStart()
@@ -63,11 +102,6 @@ namespace Game.Vocabattle.Game
 
         #region PUN CALLBACKS
 
-        public void OnEvent(EventData photonEvent)
-        {
-
-        }
-
         public override void OnDisconnected(DisconnectCause cause)
         {
             UnityEngine.SceneManagement.SceneManager.LoadScene("Vocabattle_lobby");
@@ -80,12 +114,18 @@ namespace Game.Vocabattle.Game
 
         public override void OnMasterClientSwitched(Player newMasterClient)
         {
+            if (gameRoutine != null)
+            {
+                StopCoroutine(gameRoutine);
+                gameRoutine = null;
+            }
 
-        }
+            if (PhotonNetwork.LocalPlayer.UserId != newMasterClient.UserId)
+            {
+                return;
+            }
 
-        public override void OnPlayerLeftRoom(Player otherPlayer)
-        {
-            // CheckEndOfGame();
+            gameRoutine = StartCoroutine(GameRoutine());
         }
 
         public override void OnRoomPropertiesUpdate(Hashtable propertiesThatChanged)
@@ -100,7 +140,7 @@ namespace Game.Vocabattle.Game
             {
                 Debug.Log($"Current player with turn is: {GetCurrentPlayerWithTurn()}");
                 bool isLocal = PhotonNetwork.LocalPlayer.UserId.Equals(GetCurrentPlayerWithTurn());
-                PlayerTurnEvent.PlayerTurnData playerTurnData = new PlayerTurnEvent.PlayerTurnData(GetCurrentPlayerWithTurn(), isLocal);
+                PlayerTurnEvent.PlayerTurnData playerTurnData = new PlayerTurnEvent.PlayerTurnData(GetCurrentPlayerWithTurn(), isLocal, targetLetter);
                 EventManager.Instance.TriggerEvent(new PlayerTurnEvent(playerTurnData));
             }
 
@@ -109,10 +149,36 @@ namespace Game.Vocabattle.Game
                 Debug.Log($"Current turn start time is: {GetCurrentTurnStartTime()}");
                 currentTurnStartTime = GetCurrentTurnStartTime();
             }
+
+            if (propertiesThatChanged.ContainsKey(VocabattleConstants.TargetLetter))
+            {
+                Debug.Log($"Current turn target letter is: {GetTargetLetter()}");
+                targetLetter = GetTargetLetter();
+            }
+
+            if (propertiesThatChanged.ContainsKey(VocabattleConstants.IsGameOver))
+            {
+                Debug.Log($"Is game over: {IsGameOver()}");
+                isGameOver = IsGameOver();
+
+                if (isGameOver)
+                {
+                    GameOverEvent.RoundWiseScore roundWiseScore = new GameOverEvent.RoundWiseScore(PhotonNetwork.PlayerList, rounds);
+                    EventManager.Instance.TriggerEvent(new GameOverEvent(roundWiseScore));
+                }
+            }
         }
 
         public override void OnPlayerPropertiesUpdate(Player targetPlayer, Hashtable changedProps)
         {
+            if (changedProps.ContainsKey(PunPlayerScores.PlayerScoreProp))
+            {
+                ScoreUpdateEvent.RoundWiseScore roundWiseScore = new ScoreUpdateEvent.RoundWiseScore(targetPlayer, rounds);
+                EventManager.Instance.TriggerEvent(new ScoreUpdateEvent(roundWiseScore));
+            }
+
+            CheckWord(targetPlayer, changedProps);
+
             if (!PhotonNetwork.IsMasterClient)
             {
                 return;
@@ -126,21 +192,38 @@ namespace Game.Vocabattle.Game
             {
                 if (CheckAllPlayerLoadedLevel())
                 {
-                    // if (!startTimeIsSet)
-                    // {
-                    //     CountdownTimer.SetStartTime();
-                    // }
-
                     StartGame();
                 }
-                else
-                {
-                    // not all players loaded yet. wait:
-                    // Debug.Log("setting text waiting for players! ",this.InfoText);
-                    // InfoText.text = "Waiting for other players...";
-                }
+            }
+        }
+
+        private void CheckWord(Player targetPlayer, Hashtable changedProps)
+        {
+            string key = $"{VocabattleConstants.Round}_{GetCurrentRound()}";
+            if (!changedProps.ContainsKey(key))
+            {
+                return;
             }
 
+            if (PhotonNetwork.IsMasterClient)
+            {
+                Debug.Log($"Receiving player update!");
+                isTurnOver = true;
+                SetRoomProperty(VocabattleConstants.IsTurnOver, true);
+            }
+
+            string word = GetWord(targetPlayer, key);
+            if (string.IsNullOrEmpty(word))
+            {
+                return;
+            }
+
+            usedWords.Add(word);
+
+            if (PhotonNetwork.IsMasterClient)
+            {
+                SetRoomProperty(VocabattleConstants.TargetLetter, word[word.Length - 1].ToString());
+            }
         }
 
         #endregion
@@ -165,10 +248,6 @@ namespace Game.Vocabattle.Game
             return true;
         }
 
-        private void OnPlayerNumberingChanged()
-        {
-        }
-
         private void StartGame()
         {
             gameRoutine = StartCoroutine(GameRoutine());
@@ -180,14 +259,46 @@ namespace Game.Vocabattle.Game
             SetRoomProperty(VocabattleConstants.CurrentRound, round);
 
             Player[] players = PhotonNetwork.PlayerList;
+            string currentPlayerWithTurn = GetCurrentPlayerWithTurn();
+            Player currentPlayer = null;
 
+            if (!string.IsNullOrEmpty(currentPlayerWithTurn))
+            {
+                currentPlayer = FindPlayerWithUserId(currentPlayerWithTurn);
+            }
+            else if (players != null && players.Length > 0)
+            {
+                currentPlayer = players[0];
+            }
+
+            targetLetter = GetTargetLetter();
+
+            if (string.IsNullOrEmpty(targetLetter))
+            {
+                int random = UnityEngine.Random.Range(0, 26);
+                char alphabet = (char)('a' + random);
+                SetRoomProperty(VocabattleConstants.TargetLetter, alphabet.ToString());
+            }
+
+            //TODO - Load proper time on master client switch
             while (round <= rounds)
             {
-                foreach (Player p in players)
+                Debug.Log($"Player number: {currentPlayer.GetPlayerNumber()}");
+                for (int i = currentPlayer.GetPlayerNumber(); i < players.Length; i++)
                 {
-                    SetRoomProperty(VocabattleConstants.CurrentPlayerTurn, p.UserId);
-                    SetRoomProperty(VocabattleConstants.CurrentTurnStartTime, PhotonNetwork.Time);
-                    yield return new WaitForSeconds(turnTime);
+                    isTurnOver = false;
+                    SetRoomProperty(VocabattleConstants.IsTurnOver, false);
+                    SetRoomProperty(VocabattleConstants.CurrentPlayerTurn, currentPlayer.UserId);
+                    currentTurnStartTime = PhotonNetwork.Time;
+                    SetRoomProperty(VocabattleConstants.CurrentTurnStartTime, currentTurnStartTime);
+                    yield return new WaitUntil(() => isTurnOver || IsTimeUp());
+                    currentPlayer = currentPlayer.GetNext();
+                }
+
+                if (round >= rounds)
+                {
+                    SetRoomProperty(VocabattleConstants.IsGameOver, true);
+                    break;
                 }
 
                 round++;
@@ -199,6 +310,16 @@ namespace Game.Vocabattle.Game
         {
             Hashtable props = new Hashtable() { { key, value } };
             PhotonNetwork.CurrentRoom.SetCustomProperties(props);
+        }
+
+        private void SetPlayerProperty(object key, object value)
+        {
+            Hashtable props = new Hashtable
+            {
+                {key, value}
+            };
+
+            PhotonNetwork.LocalPlayer.SetCustomProperties(props);
         }
 
         private int GetCurrentRound()
@@ -236,6 +357,66 @@ namespace Game.Vocabattle.Game
 
             return -1;
         }
-    }
 
+        private bool IsTurnOver()
+        {
+            object isTurnOver;
+
+            if (PhotonNetwork.CurrentRoom.CustomProperties.TryGetValue(VocabattleConstants.IsTurnOver, out isTurnOver))
+            {
+                return (bool)isTurnOver;
+            }
+
+            return false;
+        }
+
+        private Player FindPlayerWithUserId(string userId)
+        {
+            foreach (var player in PhotonNetwork.PlayerList)
+            {
+                if (player.UserId.Equals(userId))
+                {
+                    return player;
+                }
+            }
+
+            return null;
+        }
+
+        private string GetWord(Player player, string key)
+        {
+            object word;
+
+            if (player.CustomProperties.TryGetValue(key, out word))
+            {
+                return (string)word;
+            }
+
+            return string.Empty;
+        }
+
+        private string GetTargetLetter()
+        {
+            object targetLetter;
+
+            if (PhotonNetwork.CurrentRoom.CustomProperties.TryGetValue(VocabattleConstants.TargetLetter, out targetLetter))
+            {
+                return (string)targetLetter;
+            }
+
+            return string.Empty;
+        }
+
+        private bool IsGameOver()
+        {
+            object isGameOver;
+
+            if (PhotonNetwork.CurrentRoom.CustomProperties.TryGetValue(VocabattleConstants.IsGameOver, out isGameOver))
+            {
+                return (bool)isGameOver;
+            }
+
+            return false;
+        }
+    }
 }
