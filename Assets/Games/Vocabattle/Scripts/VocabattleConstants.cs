@@ -6,6 +6,8 @@ namespace Game.Vocabattle
     {
         public const string IsPlayerReady = "isPlayerReady";
         public const string HasPlayerLoadedLevel = "hasPlayerLoadedLevel";
+        public const string GameTimeElapsed = "gameTimeElapsed";
+        public const string CurrentTurnStartTime = "currentTurnStartTime";
         public const string CurrentPlayerTurn = "currentPlayerTurn";
         public const string CurrentRound = "currentRound";
         public const string TeamNamePref = "teamNamePref";

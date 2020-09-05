@@ -164,7 +164,7 @@ namespace Game.Vocabattle.Lobby
 
         private void OnCreateGameAttempt(object sender, string gameName)
         {
-            RoomOptions options = new RoomOptions { PlayerTtl = int.MaxValue };
+            RoomOptions options = new RoomOptions { PlayerTtl = int.MaxValue, PublishUserId = true };
             PhotonNetwork.CreateRoom(gameName, options, null);
         }
 
